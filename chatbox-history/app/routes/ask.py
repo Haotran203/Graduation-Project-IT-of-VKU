@@ -1,3 +1,5 @@
+# app/routes/ask.py
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -198,6 +200,128 @@ async def ask(req: AskRequest):
             docs.extend(external_docs)
 
         logger.info(f"[DOCS] Total candidate docs = {len(docs)}")
+
+        # --- SCORE FILTERING + CONTEXT ASSEMBLE ---
+        candidate_docs = []
+        for d in docs:
+            payload = d.get("payload", {})
+            text = payload.get("text") or payload.get("answer") or ""
+            if text and len(text) > 30:
+                candidate_docs.append(d)
+                title = payload.get("title")
+                if not title or title.strip() == "":
+                    text_preview = (payload.get("answer") or payload.get("text") or "").strip()
+                    title = (text_preview[:50].replace("\n", " ") + "...") if text_preview else "Untitled"
+                logger.debug("✓ Doc '%s' (%.2f)", title, d.get("score", 0))
+
+        # --- SELECT MODE (RAG vs Fallback) ---
+        use_rag = len(candidate_docs) > 0
+        mode = "rag" if use_rag else "web_fallback"
+        logger.info(f"[MODE] Selected: {mode.upper()}")
+
+        # ======================================================
+        # ✅ OPTIMIZED: BUILD UNIFIED PROMPT
+        # ======================================================
+        conv_context = build_conversation_history_text(history[-3:]) if history else ""
+
+        # ✅ ONE PROMPT THAT DOES EVERYTHING
+        prompt_for_llm = build_unified_prompt(
+            user_question=rewritten_query,
+            conversation_context=conv_context,
+            documents=candidate_docs if use_rag else [],
+            role=req.tenancy,
+            enable_web_search=req.deepResearch,
+            original_docs_available=use_rag
+        )
+
+        logger.info(f"[LLM] Calling provider (mode={mode}, role={req.tenancy})")
+        logger.debug(f"[PROMPT] Length: {len(prompt_for_llm)} chars")
+
+        # ✅ ONLY 1 CALL TO PROVIDER
+        gresp = generator.generate(
+            prompt=prompt_for_llm,
+            enable_web_search=req.deepResearch and not use_rag
+        )
+
+        answer = gresp.get("answer", "")
+        detected_language = gresp.get("language", "vi")  # Provider should return language
+
+        logger.info("[LLM] Generation completed")
+
+        # --- Fallback caching ---
+        if mode == "web_fallback" and len(answer) > 50:
+            logger.info("[CACHE] Storing web fallback answer into Qdrant")
+            save_fallback_answer_to_qdrant(rewritten_query, answer, embedder)
+
+        # ✅ Extract coordinates from response
+        all_coordinates = extract_all_coordinates(answer)
+        if all_coordinates:
+            logger.info(f"[COORDINATES] Extracted {len(all_coordinates)} locations")
+            answer = add_coordinates_to_answer(answer, all_coordinates)
+        else:
+            logger.debug(f"[COORDINATES] No coordinates found")
+
+        # --- PREPARE SOURCES OUTPUT ---
+        top_sources = []
+        for d in candidate_docs[:5]:
+            payload = d.get("payload", {})
+            title = ((payload.get("title")
+                      or (payload.get("answer") or "")[:50].replace("\n", " "))
+                     or "Không rõ tiêu đề")
+            snippet = (payload.get("answer") or "")[:200].replace("\n", " ")
+            top_sources.append(
+                SourceOut(
+                    title=title,
+                    url=payload.get("url"),
+                    score=d.get("score"),
+                    id=d.get("id"),
+                    answer_snippet=snippet
+                )
+            )
+
+        if not top_sources:
+            top_sources = [
+                SourceOut(
+                    title=f"Web Search via {gresp.get('model_used', 'sonar-pro')}",
+                    url=None,
+                    score=1.0,
+                    id="web-fallback",
+                    answer_snippet=answer[:200]
+                )
+            ]
+
+        # ======================================================
+        # ✅ SAVE TO ALL STORAGE LAYERS
+        # ======================================================
+
+        # 1. Save to PostgreSQL (long-term persistence)
+        # ✅ Auto-creates conversation if not exists
+        try:
+            conversation_repo.save_turn(
+                conversation_id=conversation_id,  # user_id = conversation_id
+                user_query=original_query,
+                assistant_answer=answer,
+                sources=[s.dict() for s in top_sources]
+            )
+            logger.info(f"[POSTGRESQL] ✓ Saved turn to conversation: {conversation_id}")
+        except Exception as e:
+            logger.error(f"[POSTGRESQL] ✗ Failed to save turn: {e}")
+
+        # 2. Save to in-memory store (fast session cache)
+        conversation_store.save_turn(req.user_id, conv_id, original_query, answer)
+
+        # 3. Save to Qdrant (vector search)
+        save_message(
+            user_id=req.user_id,
+            tenancy=req.tenancy,
+            prompt=original_query,
+            answer=answer,
+            vector=query_vector,
+            sources=[s.dict() for s in top_sources]
+        )
+
+        logger.info(
+            f"[COMPLETE] user={req.user_id}, conversation={conversation_id}, language={detected_language}, role={req.tenancy}, mode={mode}, coords={len(all_coordinates)}")
 
         # --- FINAL RETURN ---
         return AskResponse(
