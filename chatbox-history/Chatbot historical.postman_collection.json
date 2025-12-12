@@ -1,0 +1,151 @@
+{
+	"info": {
+		"_postman_id": "e3fce908-03c9-4637-aac1-328add1054d2",
+		"name": "Chatbot historical",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "26439125"
+	},
+	"item": [
+		{
+			"name": "health",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8000/health",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"health"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "scheduler jobs",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8000/api/scheduler/jobs",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"scheduler",
+						"jobs"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "colections",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:6333/collections",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "6333",
+					"path": [
+						"collections"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "data collection",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"limit\": 1000,\n  \"with_payload\": true,\n  \"with_vector\": false\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:6333/collections/rag_history_travel_all_MiniLM_L6_v2_384/points/scroll",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "6333",
+					"path": [
+						"collections",
+						"rag_history_travel_all_MiniLM_L6_v2_384",
+						"points",
+						"scroll"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "count in collection",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"exact\": true}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:6333/collections/rag_history_travel_all_MiniLM_L6_v2_384/points/count",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "6333",
+					"path": [
+						"collections",
+						"rag_history_travel_all_MiniLM_L6_v2_384",
+						"points",
+						"count"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
